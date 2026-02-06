@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import {
   getPackingRecommendations,
@@ -8,6 +8,11 @@ import {
   type RankedItem,
   type TripContext,
 } from "@/lib/recommendation";
+import {
+  searchLocations,
+  formatLocationLabel,
+  type LocationResult,
+} from "@/lib/locationSearch";
 
 const ACTIVITIES = [
   { id: "beach", label: "Beach" },
@@ -79,10 +84,17 @@ const STEPS = [
   { id: "style", title: "Weather & packing style", subtitle: "So we can tailor your list" },
 ] as const;
 
+const DEBOUNCE_MS = 300;
+
 export default function TripFinder() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<TripForm>(defaultForm);
   const [results, setResults] = useState<RankedItem[] | null>(null);
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationResult[]>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationWrapperRef = useRef<HTMLDivElement>(null);
 
   const totalSteps = STEPS.length;
   const isLastStep = step === totalSteps - 1;
@@ -91,6 +103,46 @@ export default function TripFinder() {
   const update = (patch: Partial<TripForm>) => {
     setForm((prev) => ({ ...prev, ...patch }));
   };
+
+  // Debounced location search
+  useEffect(() => {
+    const query = form.destination.trim();
+    if (query.length < 2) {
+      setLocationSuggestions([]);
+      return;
+    }
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    locationDebounceRef.current = setTimeout(() => {
+      setLocationLoading(true);
+      searchLocations(form.destination)
+        .then((results) => {
+          setLocationSuggestions(results);
+          setShowLocationDropdown(results.length > 0);
+        })
+        .catch(() => setLocationSuggestions([]))
+        .finally(() => setLocationLoading(false));
+    }, DEBOUNCE_MS);
+    return () => {
+      if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    };
+  }, [form.destination]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (locationWrapperRef.current && !locationWrapperRef.current.contains(e.target as Node)) {
+        setShowLocationDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectLocation = useCallback((loc: LocationResult) => {
+    update({ destination: formatLocationLabel(loc) });
+    setLocationSuggestions([]);
+    setShowLocationDropdown(false);
+  }, []);
 
   const toggleActivity = (id: string) => {
     setForm((prev) => ({
@@ -244,13 +296,51 @@ export default function TripFinder() {
             <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               Where are you going?
             </h3>
-            <input
-              type="text"
-              placeholder="e.g. Miami, London, Tokyo"
-              value={form.destination}
-              onChange={(e) => update({ destination: e.target.value })}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500"
-            />
+            <div ref={locationWrapperRef} className="relative">
+              <input
+                type="text"
+                placeholder="e.g. Irvine, Miami, London"
+                value={form.destination}
+                onChange={(e) => {
+                  update({ destination: e.target.value });
+                  if (!e.target.value.trim()) setShowLocationDropdown(false);
+                }}
+                onFocus={() => {
+                  if (locationSuggestions.length > 0) setShowLocationDropdown(true);
+                }}
+                autoComplete="off"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500"
+              />
+              {locationLoading && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">
+                  Searching…
+                </span>
+              )}
+              {showLocationDropdown && locationSuggestions.length > 0 && (
+                <ul
+                  className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-800"
+                  role="listbox"
+                >
+                  {locationSuggestions.map((loc) => (
+                    <li
+                      key={`${loc.id}-${loc.name}-${loc.admin1 ?? ""}-${loc.country}`}
+                      role="option"
+                      tabIndex={0}
+                      onClick={() => selectLocation(loc)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          selectLocation(loc);
+                        }
+                      }}
+                      className="cursor-pointer px-4 py-2.5 text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                    >
+                      {formatLocationLabel(loc)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               When?
             </h3>
