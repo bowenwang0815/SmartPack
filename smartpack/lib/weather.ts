@@ -8,6 +8,15 @@ const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 /** Weather tags we use in the packing engine. */
 export type WeatherTag = "hot" | "cold" | "rain" | "snow" | "windy" | "sun";
 
+/** Result of a forecast fetch: tags for the engine + temps for display. */
+export interface WeatherForecast {
+  tags: string[];
+  tempMin: number;
+  tempMax: number;
+  /** e.g. "Rain likely on 2 days" */
+  conditionsSummary?: string;
+}
+
 interface DailyForecast {
   time: string[];
   temperature_2m_max: (number | null)[];
@@ -35,17 +44,17 @@ function isSnowCode(code: number): boolean {
 }
 
 /**
- * Fetches daily forecast for the given location and date range, then
- * returns weather tags (hot, cold, rain, snow, windy) for the packing engine.
+ * Fetches daily forecast for the given location and date range.
+ * Returns weather tags for the engine and temp min/max + optional conditions summary for display.
  * Uses trip dates; if the trip is in the past or too far in the future,
  * the API may not return data (forecast is limited to ~16 days).
  */
-export async function fetchWeatherTags(
+export async function fetchWeatherForecast(
   latitude: number,
   longitude: number,
   startDate: string,
   endDate: string
-): Promise<string[]> {
+): Promise<WeatherForecast | null> {
   const params = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
@@ -57,11 +66,11 @@ export async function fetchWeatherTags(
   const url = `${OPEN_METEO_BASE}?${params.toString()}`;
 
   const res = await fetch(url);
-  if (!res.ok) return [];
+  if (!res.ok) return null;
 
   const data = (await res.json()) as OpenMeteoResponse;
   const daily = data.daily;
-  if (!daily?.time?.length) return [];
+  if (!daily?.time?.length) return null;
 
   const tags = new Set<string>();
   const maxTemps = daily.temperature_2m_max ?? [];
@@ -75,6 +84,9 @@ export async function fetchWeatherTags(
   const rainPrecipMm = 0.5;
   const windyKmh = 35;
 
+  let rainDays = 0;
+  let snowDays = 0;
+
   for (let i = 0; i < daily.time.length; i++) {
     const maxT = maxTemps[i];
     const minT = minTemps[i];
@@ -84,18 +96,54 @@ export async function fetchWeatherTags(
 
     if (typeof maxT === "number" && maxT >= hotThresholdC) tags.add("hot");
     if (typeof minT === "number" && minT <= coldThresholdC) tags.add("cold");
-    if (p >= rainPrecipMm || isRainCode(code)) tags.add("rain");
-    if (isSnowCode(code)) tags.add("snow");
+    if (p >= rainPrecipMm || isRainCode(code)) {
+      tags.add("rain");
+      rainDays++;
+    }
+    if (isSnowCode(code)) {
+      tags.add("snow");
+      snowDays++;
+    }
     if (typeof w === "number" && w >= windyKmh) tags.add("windy");
   }
 
   // If we saw no temp extremes but have data, add mild indicators from averages
   if (tags.size === 0 && maxTemps.length > 0) {
-    const avgMax = maxTemps.reduce((a, b) => a + (b ?? 0), 0) / maxTemps.filter(Boolean).length;
-    const avgMin = minTemps.reduce((a, b) => a + (b ?? 0), 0) / minTemps.filter(Boolean).length;
+    const validForAvgMax = maxTemps.filter((t): t is number => typeof t === "number");
+    const validForAvgMin = minTemps.filter((t): t is number => typeof t === "number");
+    const avgMax = validForAvgMax.length ? validForAvgMax.reduce((a, b) => a + b, 0) / validForAvgMax.length : 0;
+    const avgMin = validForAvgMin.length ? validForAvgMin.reduce((a, b) => a + b, 0) / validForAvgMin.length : 0;
     if (avgMax >= hotThresholdC) tags.add("hot");
     if (avgMin <= coldThresholdC) tags.add("cold");
   }
 
-  return Array.from(tags);
+  const validMax = maxTemps.filter((t): t is number => typeof t === "number");
+  const validMin = minTemps.filter((t): t is number => typeof t === "number");
+  const tempMax = validMax.length > 0 ? Math.round(Math.max(...validMax)) : 0;
+  const tempMin = validMin.length > 0 ? Math.round(Math.min(...validMin)) : 0;
+
+  const parts: string[] = [];
+  if (rainDays > 0) parts.push(`Rain likely on ${rainDays} day${rainDays !== 1 ? "s" : ""}`);
+  if (snowDays > 0) parts.push(`Snow possible on ${snowDays} day${snowDays !== 1 ? "s" : ""}`);
+  const conditionsSummary = parts.length > 0 ? parts.join(". ") : undefined;
+
+  return {
+    tags: Array.from(tags),
+    tempMin,
+    tempMax,
+    conditionsSummary,
+  };
+}
+
+/**
+ * Fetches forecast and returns only the tags (for backward compatibility / submit path).
+ */
+export async function fetchWeatherTags(
+  latitude: number,
+  longitude: number,
+  startDate: string,
+  endDate: string
+): Promise<string[]> {
+  const forecast = await fetchWeatherForecast(latitude, longitude, startDate, endDate);
+  return forecast?.tags ?? [];
 }

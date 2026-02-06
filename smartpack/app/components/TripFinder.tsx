@@ -12,7 +12,7 @@ import {
   formatLocationLabel,
   type LocationResult,
 } from "@/lib/locationSearch";
-import { fetchWeatherTags } from "@/lib/weather";
+import { fetchWeatherForecast, fetchWeatherTags, type WeatherForecast } from "@/lib/weather";
 
 const ACTIVITIES = [
   { id: "beach", label: "Beach" },
@@ -90,15 +90,32 @@ const STEPS = [
 
 const DEBOUNCE_MS = 300;
 
+type TempUnit = "C" | "F";
+
+function celsiusToFahrenheit(c: number): number {
+  return Math.round((c * 9) / 5 + 32);
+}
+
+function formatTempRange(minC: number, maxC: number, unit: TempUnit): string {
+  const min = unit === "F" ? celsiusToFahrenheit(minC) : minC;
+  const max = unit === "F" ? celsiusToFahrenheit(maxC) : maxC;
+  return `${min}–${max}°${unit}`;
+}
+
 export default function TripFinder() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<TripForm>(defaultForm);
   const [results, setResults] = useState<RankedItem[] | null>(null);
+  const [tempUnit, setTempUnit] = useState<TempUnit>("C");
   const [locationSuggestions, setLocationSuggestions] = useState<LocationResult[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  /** Forecast fetched on step 4 for display (temp + tags); reused on submit unless overridden. */
+  const [fetchedForecast, setFetchedForecast] = useState<WeatherForecast | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -145,6 +162,48 @@ export default function TripFinder() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Fetch forecast when user reaches step 4 (Weather) with location + dates, for display
+  useEffect(() => {
+    if (
+      step !== 4 ||
+      form.latitude == null ||
+      form.longitude == null ||
+      !form.startDate ||
+      !form.endDate
+    ) {
+      if (step !== 4) {
+        const t = setTimeout(() => setFetchedForecast(null), 0);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      setForecastError(null);
+      setForecastLoading(true);
+      try {
+        const forecast = await fetchWeatherForecast(
+          form.latitude!,
+          form.longitude!,
+          form.startDate,
+          form.endDate
+        );
+        if (!cancelled) setFetchedForecast(forecast);
+      } catch {
+        if (!cancelled) {
+          setForecastError("Could not load forecast.");
+          setFetchedForecast(null);
+        }
+      } finally {
+        if (!cancelled) setForecastLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, form.latitude, form.longitude, form.startDate, form.endDate]);
+
   const selectLocation = useCallback((loc: LocationResult) => {
     update({
       destination: formatLocationLabel(loc),
@@ -177,23 +236,23 @@ export default function TripFinder() {
     if (isLastStep) {
       setWeatherError(null);
       setResultsLoading(true);
+      const hasOverride = form.weatherTags.length > 0;
       let weatherTags: string[] = form.weatherTags;
-      if (
-        form.latitude != null &&
-        form.longitude != null &&
-        form.startDate &&
-        form.endDate
-      ) {
-        try {
-          const fetched = await fetchWeatherTags(
-            form.latitude,
-            form.longitude,
-            form.startDate,
-            form.endDate
-          );
-          if (fetched.length > 0) weatherTags = fetched;
-        } catch {
-          setWeatherError("Could not load forecast; using your selections.");
+      if (!hasOverride && form.latitude != null && form.longitude != null && form.startDate && form.endDate) {
+        if (fetchedForecast?.tags?.length) {
+          weatherTags = fetchedForecast.tags;
+        } else {
+          try {
+            const fetched = await fetchWeatherTags(
+              form.latitude,
+              form.longitude,
+              form.startDate,
+              form.endDate
+            );
+            if (fetched.length > 0) weatherTags = fetched;
+          } catch {
+            setWeatherError("Could not load forecast; using your selections.");
+          }
         }
       }
       const context = formToTripContext(form, weatherTags);
@@ -218,6 +277,8 @@ export default function TripFinder() {
     setForm(defaultForm);
     setResults(null);
     setWeatherError(null);
+    setFetchedForecast(null);
+    setForecastError(null);
   };
 
   if (isComplete && results) {
@@ -232,18 +293,39 @@ export default function TripFinder() {
           <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
             Your packing list
           </h2>
-          <button
-            type="button"
-            onClick={startOver}
-            className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-          >
-            Start over
-          </button>
+          <div className="flex items-center gap-2">
+            {fetchedForecast && (
+              <div className="flex rounded border border-zinc-200 dark:border-zinc-600">
+                <button
+                  type="button"
+                  onClick={() => setTempUnit("C")}
+                  className={`rounded-l px-2 py-0.5 text-xs font-medium ${tempUnit === "C" ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-50" : "bg-transparent text-zinc-500 dark:text-zinc-400"}`}
+                >
+                  °C
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTempUnit("F")}
+                  className={`rounded-r px-2 py-0.5 text-xs font-medium ${tempUnit === "F" ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-50" : "bg-transparent text-zinc-500 dark:text-zinc-400"}`}
+                >
+                  °F
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={startOver}
+              className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Start over
+            </button>
+          </div>
         </div>
         {form.destination && (
           <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
             {form.destination}
             {days > 0 && ` · ${days} day${days !== 1 ? "s" : ""}`}
+            {fetchedForecast && ` · ${formatTempRange(fetchedForecast.tempMin, fetchedForecast.tempMax, tempUnit)}`}
           </p>
         )}
 
@@ -510,18 +592,68 @@ export default function TripFinder() {
         {step === 4 && (
           <div className="space-y-6">
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-                Weather
-              </h3>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Weather
+                </h3>
+                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-600">
+                  <button
+                    type="button"
+                    onClick={() => setTempUnit("C")}
+                    className={`rounded-l-md px-2.5 py-1 text-sm font-medium ${tempUnit === "C" ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-50" : "bg-transparent text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"}`}
+                  >
+                    °C
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTempUnit("F")}
+                    className={`rounded-r-md px-2.5 py-1 text-sm font-medium ${tempUnit === "F" ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-50" : "bg-transparent text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"}`}
+                  >
+                    °F
+                  </button>
+                </div>
+              </div>
               {form.latitude != null && form.longitude != null && form.startDate && form.endDate ? (
-                <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-                  We&apos;ll use the forecast for your destination and dates. Or override below if you prefer.
-                </p>
+                <>
+                  {forecastLoading && (
+                    <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+                      Loading forecast…
+                    </p>
+                  )}
+                  {forecastError && (
+                    <p className="mb-3 text-sm text-amber-600 dark:text-amber-400">
+                      {forecastError}
+                    </p>
+                  )}
+                  {fetchedForecast && !forecastLoading && (
+                    <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-600 dark:bg-zinc-800">
+                      <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                        {formatTempRange(fetchedForecast.tempMin, fetchedForecast.tempMax, tempUnit)}
+                      </p>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Highs and lows for your trip dates
+                      </p>
+                      {fetchedForecast.conditionsSummary && (
+                        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                          {fetchedForecast.conditionsSummary}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                        We&apos;ll use this forecast for your packing list. Override below if it doesn&apos;t match.
+                      </p>
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
                   Select expected weather (or pick a location with dates on step 1 to use live forecast).
                 </p>
               )}
+              <p className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {form.latitude != null && form.longitude != null && form.startDate && form.endDate
+                  ? "Override forecast"
+                  : "Expected weather"}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {WEATHER_OPTIONS.map((w) => (
                   <button
