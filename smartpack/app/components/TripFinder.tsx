@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import Image from "next/image";
 import {
   getPackingRecommendations,
   MOCK_ITEM_CATALOG,
@@ -13,6 +12,7 @@ import {
   formatLocationLabel,
   type LocationResult,
 } from "@/lib/locationSearch";
+import { fetchWeatherTags } from "@/lib/weather";
 
 const ACTIVITIES = [
   { id: "beach", label: "Beach" },
@@ -41,6 +41,9 @@ interface TripForm {
   weatherTags: string[];
   packingPreference: number;
   tempPreference: "runs_cold" | "neutral" | "runs_warm";
+  /** Set when user selects a location from dropdown; used for weather API. */
+  latitude?: number;
+  longitude?: number;
 }
 
 const defaultForm: TripForm = {
@@ -63,12 +66,13 @@ function getTripLengthDays(start: string, end: string): number {
   return Math.max(1, Math.min(diff + 1, 90));
 }
 
-function formToTripContext(form: TripForm): TripContext {
+function formToTripContext(form: TripForm, weatherTagsOverride?: string[]): TripContext {
   const tripLengthDays = getTripLengthDays(form.startDate, form.endDate);
+  const weatherTags = weatherTagsOverride ?? form.weatherTags;
   return {
     tripLengthDays,
     activities: form.activities,
-    weatherTags: form.weatherTags,
+    weatherTags,
     luggageType: form.luggageType,
     laundryAccess: form.laundryAccess,
     packingPreference: form.packingPreference,
@@ -93,6 +97,8 @@ export default function TripFinder() {
   const [locationSuggestions, setLocationSuggestions] = useState<LocationResult[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const [resultsLoading, setResultsLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -104,15 +110,16 @@ export default function TripFinder() {
     setForm((prev) => ({ ...prev, ...patch }));
   };
 
-  // Debounced location search
+  // Debounced location search (state updates only inside timeout to avoid sync setState in effect)
   useEffect(() => {
     const query = form.destination.trim();
-    if (query.length < 2) {
-      setLocationSuggestions([]);
-      return;
-    }
     if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
     locationDebounceRef.current = setTimeout(() => {
+      if (query.length < 2) {
+        setLocationSuggestions([]);
+        setShowLocationDropdown(false);
+        return;
+      }
       setLocationLoading(true);
       searchLocations(form.destination)
         .then((results) => {
@@ -121,7 +128,7 @@ export default function TripFinder() {
         })
         .catch(() => setLocationSuggestions([]))
         .finally(() => setLocationLoading(false));
-    }, DEBOUNCE_MS);
+    }, query.length < 2 ? 0 : DEBOUNCE_MS);
     return () => {
       if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
     };
@@ -139,7 +146,11 @@ export default function TripFinder() {
   }, []);
 
   const selectLocation = useCallback((loc: LocationResult) => {
-    update({ destination: formatLocationLabel(loc) });
+    update({
+      destination: formatLocationLabel(loc),
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+    });
     setLocationSuggestions([]);
     setShowLocationDropdown(false);
   }, []);
@@ -162,11 +173,33 @@ export default function TripFinder() {
     }));
   };
 
-  const goNext = () => {
+  const goNext = async () => {
     if (isLastStep) {
-      const context = formToTripContext(form);
+      setWeatherError(null);
+      setResultsLoading(true);
+      let weatherTags: string[] = form.weatherTags;
+      if (
+        form.latitude != null &&
+        form.longitude != null &&
+        form.startDate &&
+        form.endDate
+      ) {
+        try {
+          const fetched = await fetchWeatherTags(
+            form.latitude,
+            form.longitude,
+            form.startDate,
+            form.endDate
+          );
+          if (fetched.length > 0) weatherTags = fetched;
+        } catch {
+          setWeatherError("Could not load forecast; using your selections.");
+        }
+      }
+      const context = formToTripContext(form, weatherTags);
       const ranked = getPackingRecommendations(context, MOCK_ITEM_CATALOG);
       setResults(ranked);
+      setResultsLoading(false);
     } else {
       setStep((s) => Math.min(s + 1, totalSteps - 1));
     }
@@ -184,6 +217,7 @@ export default function TripFinder() {
     setStep(0);
     setForm(defaultForm);
     setResults(null);
+    setWeatherError(null);
   };
 
   if (isComplete && results) {
@@ -302,7 +336,11 @@ export default function TripFinder() {
                 placeholder="e.g. Irvine, Miami, London"
                 value={form.destination}
                 onChange={(e) => {
-                  update({ destination: e.target.value });
+                  update({
+                    destination: e.target.value,
+                    latitude: undefined,
+                    longitude: undefined,
+                  });
                   if (!e.target.value.trim()) setShowLocationDropdown(false);
                 }}
                 onFocus={() => {
@@ -325,6 +363,7 @@ export default function TripFinder() {
                     <li
                       key={`${loc.id}-${loc.name}-${loc.admin1 ?? ""}-${loc.country}`}
                       role="option"
+                      aria-selected={false}
                       tabIndex={0}
                       onClick={() => selectLocation(loc)}
                       onKeyDown={(e) => {
@@ -472,11 +511,17 @@ export default function TripFinder() {
           <div className="space-y-6">
             <div>
               <h3 className="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-                What weather do you expect?
+                Weather
               </h3>
-              <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-                Select all that apply.
-              </p>
+              {form.latitude != null && form.longitude != null && form.startDate && form.endDate ? (
+                <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+                  We&apos;ll use the forecast for your destination and dates. Or override below if you prefer.
+                </p>
+              ) : (
+                <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+                  Select expected weather (or pick a location with dates on step 1 to use live forecast).
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {WEATHER_OPTIONS.map((w) => (
                   <button
@@ -544,20 +589,27 @@ export default function TripFinder() {
         )}
       </div>
 
+      {weatherError && (
+        <p className="mb-3 text-sm text-amber-600 dark:text-amber-400">
+          {weatherError}
+        </p>
+      )}
       <div className="flex justify-between gap-4">
         <button
           type="button"
           onClick={goBack}
-          className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+          disabled={resultsLoading}
+          className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
         >
           {step === 0 ? "Cancel" : "Back"}
         </button>
         <button
           type="button"
-          onClick={goNext}
-          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
+          onClick={() => void goNext()}
+          disabled={resultsLoading}
+          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 dark:focus:ring-offset-zinc-900"
         >
-          {isLastStep ? "Get my packing list" : "Next"}
+          {resultsLoading ? "Loading…" : isLastStep ? "Get my packing list" : "Next"}
         </button>
       </div>
     </div>
