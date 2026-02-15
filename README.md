@@ -26,3 +26,5 @@ CS 125 Project by Bowen Wang, Gayathri Yedavilli, Alvina Chow
 
 1. npm run dev
 2. Navigate to http://localhost:3000 on your browser.
+
+### Deployed Website: https://smart-pack.vercel.app/
