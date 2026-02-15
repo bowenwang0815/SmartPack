@@ -1,4 +1,6 @@
 # SmartPack
+CS 125 Project by Bowen Wang, Gayathri Yedavilli, Alvina Chow
+
 ### Repository  
 **GitHub Link:** https://github.com/bowenwang0815/SmartPack  
 
