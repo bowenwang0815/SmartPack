@@ -282,8 +282,13 @@ export default function TripFinder() {
   };
 
   if (isComplete && results) {
-    const top3 = results.filter((r) => r.tier === "essential").slice(0, 3);
-    const suggested = results.filter((r) => r.tier === "suggested").slice(0, 8);
+    // Contextual suggestions for this trip (shown first): suggested tier + high-score non-catalog-essentials
+    const suggestedForTrip = results
+      .filter((r) => r.tier === "suggested" || (r.tier === "essential" && !r.item.isEssential))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+    // Universal essentials (ID, passport, phone, etc.) — own section, not at the very top
+    const essentialsAlways = results.filter((r) => r.item.isEssential);
     const optional = results.filter((r) => r.tier === "optional").slice(0, 6);
     const days = getTripLengthDays(form.startDate, form.endDate);
 
@@ -331,34 +336,46 @@ export default function TripFinder() {
 
         <section className="mb-8">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Must bring
+            Suggested for your trip
           </h3>
-          <ul className="space-y-2">
-            {top3.map((r) => (
-              <li
-                key={r.item.id}
-                className="flex items-start justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-800"
-              >
-                <div>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-50">
-                    {r.item.name}
-                  </span>
-                  <span className="ml-2 text-zinc-500">×{r.suggestedQuantity}</span>
-                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    {r.reason}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Top picks for your destination, dates, and activities.
+          </p>
+          {suggestedForTrip.length > 0 ? (
+            <ul className="space-y-2">
+              {suggestedForTrip.map((r) => (
+                <li
+                  key={r.item.id}
+                  className="flex items-start justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <div>
+                    <span className="font-medium text-zinc-900 dark:text-zinc-50">
+                      {r.item.name}
+                    </span>
+                    <span className="ml-2 text-zinc-500">×{r.suggestedQuantity}</span>
+                    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      {r.reason}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-lg border border-zinc-200 bg-zinc-50 py-3 px-4 text-sm text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              No trip-specific suggestions; check essentials and optional below.
+            </p>
+          )}
         </section>
 
         <section className="mb-8">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Suggested
+            Essentials (every trip)
           </h3>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            ID, documents, phone, and basics you always need.
+          </p>
           <ul className="space-y-1.5">
-            {suggested.map((r) => (
+            {essentialsAlways.map((r) => (
               <li
                 key={r.item.id}
                 className="flex items-center justify-between rounded-md bg-zinc-50 py-2 px-3 dark:bg-zinc-800"
@@ -366,9 +383,7 @@ export default function TripFinder() {
                 <span className="text-zinc-800 dark:text-zinc-200">
                   {r.item.name}
                 </span>
-                <span className="text-sm text-zinc-500">
-                  ×{r.suggestedQuantity} · {r.reason}
-                </span>
+                <span className="text-sm text-zinc-500">×{r.suggestedQuantity}</span>
               </li>
             ))}
           </ul>
