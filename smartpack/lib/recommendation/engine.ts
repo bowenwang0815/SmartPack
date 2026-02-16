@@ -114,8 +114,8 @@ export function getPackingRecommendations(
       score -= WEIGHTS.packingPenalty;
     }
 
-    // Carry-on: slight penalty for optional, low-priority items
-    if (carryOnOnly && !item.isEssential && item.basePriority < 0.6) {
+    // Carry-on: slight penalty only for items that don't match the trip (avoid over-penalizing relevant items)
+    if (carryOnOnly && !item.isEssential && item.basePriority < 0.6 && tagMatchCount === 0) {
       score -= WEIGHTS.carryOnPenalty;
     }
 
@@ -135,7 +135,7 @@ export function getPackingRecommendations(
     }
 
     const tier: RankedItem["tier"] =
-      item.isEssential || score >= 0.75 ? "essential" : score >= 0.4 ? "suggested" : "optional";
+      item.isEssential || score >= 0.75 ? "essential" : score >= 0.32 ? "suggested" : "optional";
 
     const reason = buildReason(item, tagMatchCount > 0, matchedTags, tier);
 
