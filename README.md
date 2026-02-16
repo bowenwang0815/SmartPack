@@ -5,7 +5,7 @@ CS 125 Project by Bowen Wang, Gayathri Yedavilli, Alvina Chow
 **GitHub Link:** https://github.com/bowenwang0815/SmartPack  
 
 ### Latest Commit  
-`added location searching`  
+`feat:removed next.js logo`  
 
 ---
 
