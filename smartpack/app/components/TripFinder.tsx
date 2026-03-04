@@ -188,7 +188,14 @@ export default function TripFinder() {
           form.startDate,
           form.endDate
         );
-        if (!cancelled) setFetchedForecast(forecast);
+        if (!cancelled) {
+          setFetchedForecast(forecast);
+          if (!forecast) {
+            setForecastError(
+              "No forecast available for these dates (forecast is limited to ~16 days)."
+            );
+          }
+        }
       } catch {
         if (!cancelled) {
           setForecastError("Weather unavailable.");
@@ -317,13 +324,6 @@ export default function TripFinder() {
                 </button>
               </div>
             )}
-            <button
-              type="button"
-              onClick={startOver}
-              className="text-sm font-medium text-teal-600 hover:underline dark:text-teal-400"
-            >
-              Start over
-            </button>
           </div>
         </div>
         {form.destination && (
@@ -395,6 +395,16 @@ export default function TripFinder() {
             ))}
           </ul>
         </section>
+
+        <div className="mt-10 flex justify-end">
+          <button
+            type="button"
+            onClick={startOver}
+            className="rounded-xl bg-teal-600 px-8 py-3 text-base font-semibold text-white shadow-sm hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 dark:bg-teal-500 dark:hover:bg-teal-600 dark:focus:ring-offset-slate-800"
+          >
+            Start over
+          </button>
+        </div>
       </div>
     );
   }
