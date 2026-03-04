@@ -399,6 +399,12 @@ export default function TripFinder() {
     );
   }
 
+  const canProceedStep0 =
+    form.destination.trim() !== "" && form.startDate !== "" && form.endDate !== "";
+  const canProceedStep1 = form.activities.length > 0;
+  const canProceed =
+    step === 0 ? canProceedStep0 : step === 1 ? canProceedStep1 : true;
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-8">
@@ -588,7 +594,7 @@ export default function TripFinder() {
                   className={`w-full rounded-lg border px-4 py-3 text-left font-medium transition-colors ${
                     form.laundryAccess === opt.id
                       ? "border-stone-500 bg-stone-100 text-stone-800 dark:border-stone-400 dark:bg-stone-700/50 dark:text-stone-200"
-                      : "border-zinc-200 bg-white text-zinc-700 dark:border-stone-600 dark:bg-stone-800 dark:text-zinc-300"
+                      : "border-stone-200 bg-white text-stone-700 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300"
                   }`}
                 >
                   {opt.label}
@@ -609,14 +615,14 @@ export default function TripFinder() {
                   <button
                     type="button"
                     onClick={() => setTempUnit("C")}
-                    className={`rounded-l-md px-2.5 py-1 text-sm font-medium ${tempUnit === "C" ? "bg-stone-200 text-stone-900 dark:bg-stone-600 dark:text-stone-50" : "bg-transparent text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"}`}
+                    className={`rounded-l-md px-2.5 py-1 text-sm font-medium ${tempUnit === "C" ? "bg-stone-200 text-stone-900 dark:bg-stone-600 dark:text-stone-50" : "bg-transparent text-stone-500 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700"}`}
                   >
                     °C
                   </button>
                   <button
                     type="button"
                     onClick={() => setTempUnit("F")}
-                    className={`rounded-r-md px-2.5 py-1 text-sm font-medium ${tempUnit === "F" ? "bg-stone-200 text-stone-900 dark:bg-stone-600 dark:text-stone-50" : "bg-transparent text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"}`}
+                    className={`rounded-r-md px-2.5 py-1 text-sm font-medium ${tempUnit === "F" ? "bg-stone-200 text-stone-900 dark:bg-stone-600 dark:text-stone-50" : "bg-transparent text-stone-500 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700"}`}
                   >
                     °F
                   </button>
@@ -672,7 +678,7 @@ export default function TripFinder() {
                     className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                       form.weatherTags.includes(w.id)
                         ? "bg-stone-800 text-white dark:bg-stone-600"
-                        : "bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300"
+                        : "bg-stone-100 text-stone-700 dark:bg-stone-700 dark:text-stone-300"
                     }`}
                   >
                     {w.label}
@@ -736,19 +742,23 @@ export default function TripFinder() {
         </p>
       )}
       <div className="flex justify-between gap-4">
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={resultsLoading}
-          className="rounded-lg border border-stone-300 bg-white px-4 py-2.5 font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-        >
-          {step === 0 ? "Cancel" : "Back"}
-        </button>
+        {step === 0 ? (
+          <div />
+        ) : (
+          <button
+            type="button"
+            onClick={goBack}
+            disabled={resultsLoading}
+            className="rounded-lg border border-stone-300 bg-white px-4 py-2.5 font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700"
+          >
+            Back
+          </button>
+        )}
         <button
           type="button"
           onClick={() => void goNext()}
-          disabled={resultsLoading}
-          className="rounded-lg bg-stone-800 px-6 py-2.5 font-medium text-white hover:bg-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:opacity-70 dark:focus:ring-offset-stone-900"
+          disabled={resultsLoading || (!isLastStep && !canProceed)}
+          className="rounded-lg bg-stone-800 px-6 py-2.5 font-medium text-white hover:bg-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none dark:focus:ring-offset-stone-900"
         >
           {resultsLoading ? "Loading…" : isLastStep ? "See my list" : "Next"}
         </button>
