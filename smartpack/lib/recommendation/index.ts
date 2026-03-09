@@ -1,5 +1,5 @@
 /**
- * SmartPack recommendation engine — public API.
+ * SmartPack recommendation engine using public API.
  * Use this entry point from the app or API routes.
  */
 
