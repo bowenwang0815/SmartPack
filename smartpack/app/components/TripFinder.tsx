@@ -498,7 +498,15 @@ export default function TripFinder() {
                 <input
                   type="date"
                   value={form.startDate}
-                  onChange={(e) => update({ startDate: e.target.value })}
+                  onChange={(e) => {
+                    const newStart = e.target.value;
+
+                    update({
+                      startDate: newStart,
+                      endDate:
+                        form.endDate && form.endDate < newStart ? "" : form.endDate,
+                    });
+                  }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-400/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 />
               </div>
@@ -509,6 +517,7 @@ export default function TripFinder() {
                 <input
                   type="date"
                   value={form.endDate}
+                  min={form.startDate || undefined}
                   onChange={(e) => update({ endDate: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-400/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 />
