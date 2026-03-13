@@ -193,6 +193,7 @@ export default function TripFinder() {
           if (!forecast) {
             setForecastError(
               "No forecast available for these dates (forecast is limited to ~16 days)."
+              
             );
           }
         }
